@@ -1,76 +1,102 @@
-/* BlackGold Premium Theme */
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ANJ Invoice V3 — BlackGold Pro</title>
 
-body {
-  margin: 0;
-  padding: 0;
-  font-family: "Poppins", sans-serif;
-  background: #000;
-  color: #f5c76b;
-}
+  <!-- Styles -->
+  <link rel="stylesheet" href="style.css" />
 
-.header {
-  text-align: center;
-  padding: 25px 10px;
-  border-bottom: 1px solid #222;
-  background: linear-gradient(to right, #0a0a0a, #1a1a1a, #0a0a0a);
-}
+  <!-- Libraries -->
+  <!-- pdf.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
 
-h1 {
-  font-size: 32px;
-  margin: 0;
-  color: #f5c76b;
-  letter-spacing: 2px;
-}
+  <!-- Tesseract (OCR) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
 
-.tagline {
-  font-size: 14px;
-  opacity: 0.7;
-}
+  <!-- html2canvas + jsPDF for PDF export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-.card {
-  width: 88%;
-  margin: 30px auto;
-  background: #0d0d0d;
-  padding: 20px;
-  border-radius: 14px;
-  border: 1px solid #2a2a2a;
-  box-shadow: 0 0 25px rgba(245, 199, 107, 0.08);
-}
+  <!-- Chart.js for analytics -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
 
-button {
-  width: 100%;
-  margin-top: 10px;
-  padding: 12px;
-  font-size: 16px;
-  border: none;
-  border-radius: 8px;
-  background: #f5c76b;
-  color: #1e1e1e;
-  font-weight: bold;
-  cursor: pointer;
-  transition: 0.2s;
-}
+  <meta name="theme-color" content="#0f0f10">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo-geom"></div>
+      <div>
+        <h1>ANJ Invoice</h1>
+        <div class="tag">AI • History • Analytics • Black & Gold</div>
+      </div>
+    </div>
 
-button:hover {
-  transform: translateY(-2px);
-  background: #ffd889;
-}
+    <div class="top-actions">
+      <button class="btn small gold" id="exportAllBtn">Export All (JSON)</button>
+      <button class="btn small ghost" id="clearAllBtn">Clear History</button>
+    </div>
+  </header>
 
-.result-box {
-  background: #111;
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid #333;
-}
+  <main class="layout">
+    <section class="panel left">
+      <div class="card upload">
+        <h2>Upload Bill / Invoice</h2>
+        <input id="fileInput" type="file" accept="application/pdf,image/*,.txt"/>
+        <div class="hint">Supported: PDF, PNG, JPG, TXT</div>
+        <div class="actions-row">
+          <button id="parseBtn" class="btn gold">Parse Bill</button>
+          <button id="ocrBtn" class="btn ghost">OCR (image)</button>
+        </div>
+      </div>
 
-#historyList {
-  margin-top: 15px;
-}
+      <div id="parsedCard" class="card hidden">
+        <h2>Parsed Results</h2>
+        <div id="metaBlock" class="metaBlock"></div>
 
-.history-item {
-  background: #111;
-  padding: 10px;
-  border-radius: 8px;
-  margin-bottom: 10px;
-  border: 1px solid #333;
-}
+        <div id="itemsBlock" class="itemsBlock"></div>
+
+        <div class="actions-row">
+          <button id="generateBtn" class="btn gold">Generate Invoice (A1 • BlackGold)</button>
+          <button id="saveBtn" class="btn">Save to History</button>
+        </div>
+      </div>
+
+      <div id="invoiceCard" class="card hidden">
+        <h2>Generated Invoice</h2>
+        <div id="invoiceArea" class="invoiceArea"></div>
+
+        <div class="actions-row">
+          <button id="downloadPDFBtn" class="btn gold">Download PDF</button>
+          <button id="printBtn" class="btn">Print</button>
+          <button id="regenerateBtn" class="btn ghost">Regenerate</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel right">
+      <div class="card history">
+        <h3>History</h3>
+        <div id="historyList" class="historyList">
+          <div class="muted">No saved bills yet.</div>
+        </div>
+      </div>
+
+      <div class="card analytics">
+        <h3>Analytics</h3>
+        <canvas id="categoryChart" height="200"></canvas>
+        <canvas id="monthlyChart" height="200" style="margin-top:14px;"></canvas>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="footer">
+    ANJ Creator Hub © 2025 • Invoice V3 (BlackGold Pro)
+  </footer>
+
+  <!-- App script -->
+  <script src="script.js"></script>
+</body>
+</html>

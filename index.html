@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ANJ Invoice – Classic A1</title>
+
+    <link href="style.css" rel="stylesheet" />
+</head>
+<body>
+
+<div class="invoice-container">
+
+    <header class="invoice-header">
+        <div class="logo-section">
+            <div class="diamond"></div>
+            <h1>ANJ BUSINESS INVOICE</h1>
+        </div>
+
+        <div class="invoice-info">
+            <p><strong>Invoice No:</strong> INV-2025-0012</p>
+            <p><strong>Date:</strong> 05 Dec 2025</p>
+            <p><strong>Due Date:</strong> 12 Dec 2025</p>
+        </div>
+    </header>
+
+    <section class="bill-to">
+        <h2>Bill To:</h2>
+        <p><strong>Name:</strong> John Doe</p>
+        <p><strong>Address:</strong> 221B Baker Street, London</p>
+        <p><strong>Email:</strong> johndoe@example.com</p>
+    </section>
+
+    <section class="item-table">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Description</th>
+                    <th>Qty</th>
+                    <th>Unit Price</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+
+            <tbody id="invoice-items">
+                <!-- Items will load here -->
+            </tbody>
+        </table>
+    </section>
+
+    <section class="summary">
+        <div class="summary-box">
+            <p><span>Subtotal:</span> <strong id="subtotal">0</strong></p>
+            <p><span>Tax (5%):</span> <strong id="tax">0</strong></p>
+            <p class="grand"><span>Grand Total:</span> <strong id="grandTotal">0</strong></p>
+        </div>
+    </section>
+
+    <footer class="invoice-footer">
+        <p>Thank you for your business.</p>
+        <p>ANJ Expense AI · Smart Finance for Smart People</p>
+    </footer>
+
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

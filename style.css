@@ -1,102 +1,120 @@
 body {
-    font-family: 'Segoe UI', sans-serif;
-    background: #f6f6f6;
     margin: 0;
+    font-family: "Poppins", sans-serif;
+    background: #f4f4f8;
+    color: #222;
+}
+
+.topbar {
+    text-align: center;
+    padding: 20px 10px;
+    background: linear-gradient(135deg, #4b9bff, #6a5af9);
+    color: white;
+}
+
+.tagline {
+    margin-top: -5px;
+    font-size: 14px;
+    opacity: 0.9;
+}
+
+.container {
     padding: 20px;
-    display: flex;
-    justify-content: center;
+    max-width: 700px;
+    margin: auto;
 }
 
-.invoice-container {
+.card {
+    background: white;
+    padding: 20px;
+    border-radius: 16px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+    margin-bottom: 25px;
+}
+
+.upload-box input {
+    margin-top: 10px;
+    padding: 10px;
     width: 100%;
-    max-width: 750px;
-    background: #fff;
-    padding: 30px;
-    border-radius: 14px;
-    box-shadow: 0 2px 20px rgba(0,0,0,0.08);
+    border-radius: 10px;
+    border: 1px solid #ccc;
 }
 
-/* Header */
-.invoice-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+.btn {
+    width: 100%;
+    margin-top: 15px;
+    padding: 12px;
+    background: linear-gradient(135deg, #6a5af9, #4b9bff);
+    color: white;
+    border: none;
+    font-size: 16px;
+    font-weight: 600;
+    border-radius: 12px;
 }
 
-.logo-section {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+.btn:hover {
+    opacity: 0.9;
 }
 
-.logo-section h1 {
-    font-size: 22px;
-    margin: 0;
+.note {
+    font-size: 12px;
+    margin-top: 10px;
+    opacity: 0.7;
+}
+
+.hidden {
+    display: none;
+}
+
+pre {
+    white-space: pre-wrap;
+    padding: 10px;
+    border-radius: 10px;
+    background: #f0f0f5;
+}
+
+.footer {
+    text-align: center;
+    padding: 10px;
+    margin-top: 20px;
+    font-size: 13px;
+    opacity: 0.6;
+}
+
+/* FINAL INVOICE STYLING */
+.invoiceBox {
+    padding: 20px;
+    border-radius: 16px;
+    background: white;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.inv-title {
+    font-size: 24px;
+    font-weight: bold;
 }
 
 .diamond {
-    width: 18px;
-    height: 18px;
-    background: linear-gradient(135deg, #00bfff, #7f00ff);
+    width: 22px;
+    height: 22px;
+    background: linear-gradient(135deg, #00d4ff, #7a00ff);
     transform: rotate(45deg);
-    border-radius: 3px;
+    border-radius: 4px;
+    display: inline-block;
+    margin-right: 10px;
 }
 
-/* Bill to */
-.bill-to {
-    margin-top: 25px;
-}
-.bill-to h2 {
-    margin-bottom: 4px;
-}
-
-/* Table */
-.item-table {
-    margin-top: 25px;
-}
-
-table {
+.table {
     width: 100%;
-    border-collapse: collapse;
+    margin-top: 20px;
 }
 
-thead {
-    background: #efefef;
+.table th {
+    background: #f0f0f5;
+    padding: 8px;
 }
 
-th, td {
-    padding: 10px;
-    border-bottom: 1px solid #ddd;
-    text-align: left;
-}
-
-.summary {
-    margin-top: 25px;
-    display: flex;
-    justify-content: flex-end;
-}
-
-.summary-box {
-    width: 250px;
-    padding: 15px;
-    background: #fafafa;
-    border-radius: 10px;
-}
-
-.summary-box p {
-    margin: 6px 0;
-}
-
-.summary-box .grand {
-    font-size: 18px;
-    border-top: 1px solid #ccc;
-    padding-top: 8px;
-}
-
-/* Footer */
-.invoice-footer {
-    text-align: center;
-    margin-top: 40px;
-    font-size: 13px;
-    color: #555;
+.table td {
+    padding: 8px;
+    border-bottom: 1px solid #eee;
 }

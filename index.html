@@ -1,84 +1,57 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>ANJ Invoice V2 — History & Smart Parser</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ANJ Expense AI - Premium</title>
 
-  <!-- Styles -->
-  <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="style.css">
 
-  <!-- Required libs -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+
+    <!-- Tesseract OCR -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+
+    <!-- html2canvas + jsPDF for invoice PDF export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
 </head>
 
 <body>
-  <header class="header">
-    <div class="header-inner">
-      <div class="brand">
-        <span class="diamond"></span>
-        <div>
-          <h1>ANJ Invoice</h1>
-          <div class="muted">Smart Bill Parser • History • Black & Gold</div>
+    <header class="header">
+        <h1>ANJ Expense AI</h1>
+        <p class="tagline">Smart. Fast. AI-Powered.</p>
+    </header>
+
+    <main class="card">
+        <h2>Upload Bill / Invoice</h2>
+        <input type="file" id="fileInput" accept="image/*,application/pdf">
+
+        <button id="extractBtn">Extract Details</button>
+
+        <hr>
+
+        <h2>Extracted Information</h2>
+
+        <div class="result-box">
+            <p><strong>Date:</strong> <span id="dateOut">-</span></p>
+            <p><strong>Total:</strong> ₹<span id="totalOut">0</span></p>
+            <p><strong>Merchant:</strong> <span id="merchantOut">-</span></p>
+            <p><strong>Category:</strong> <span id="categoryOut">-</span></p>
         </div>
-      </div>
 
-      <div class="controls">
-        <button class="btn small" onclick="exportAllJSON()">Export All (JSON)</button>
-        <button class="btn small ghost" onclick="clearHistoryConfirm()">Clear History</button>
-      </div>
-    </div>
-  </header>
+        <button id="saveBtn">Save to History</button>
+        <button id="downloadInvoice">Download PDF</button>
+        <button id="printInvoice">Print</button>
 
-  <main class="layout">
-    <section class="left">
-      <div class="card upload-card">
-        <h2>Upload & Parse</h2>
-        <input id="fileInput" type="file" accept=".pdf,image/*,.txt" />
-        <label class="muted small">Supported: PDF, JPG, PNG, TXT</label>
-        <button class="btn" onclick="processFile()">Parse Bill</button>
-      </div>
+        <hr>
 
-      <div id="parsedCard" class="card hidden">
-        <h2>Parsed Invoice (Preview)</h2>
-        <div id="parsedMeta" class="metaBlock"></div>
-        <pre id="parsedOutput" class="previewText"></pre>
+        <h2>History</h2>
+        <div id="historyList"></div>
+    </main>
 
-        <div class="actions-row">
-          <button class="btn" onclick="generateInvoice()">Generate Invoice (A1 • BlackGold)</button>
-          <button class="btn ghost" onclick="saveCurrent()">Save to History</button>
-        </div>
-      </div>
-
-      <div id="invoiceCard" class="card hidden">
-        <h2>Generated Invoice</h2>
-        <div id="invoiceArea"></div>
-        <div class="actions-row">
-          <button class="btn" onclick="downloadInvoicePDF()">Download / Print</button>
-          <button class="btn ghost" onclick="saveCurrent(true)">Save (with invoice)</button>
-        </div>
-      </div>
-    </section>
-
-    <aside class="right">
-      <div class="card">
-        <h3>History</h3>
-        <div id="historyList" class="historyList">
-          <div class="muted small">No saved bills yet.</div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Info</h3>
-        <p class="small muted">Saved items stored locally in your browser (IndexedDB). Works offline. You can export JSON for backups.</p>
-      </div>
-    </aside>
-  </main>
-
-  <footer class="footer">ANJ Creator Hub © 2025 • Invoice V2</footer>
-
-  <!-- App script -->
-  <script src="script.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>

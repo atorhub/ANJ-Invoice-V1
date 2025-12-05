@@ -1,518 +1,460 @@
-/* script.js - ANJ Invoice V3 (BlackGold Pro)
-   - PDF.js, Tesseract, html2canvas/jsPDF, Chart.js
-   - Improved AI-like extractor + IndexedDB history + analytics
-*/
+// script.js (robust loader + diagnostics + core features)
+// Overwrites previous script.js. Meant to be a drop-in replacement.
+// Adds visible error box, library checks, delayed init and safe-fail behavior.
 
-/* ========== Basic DOM helpers ========== */
-const $ = (id) => document.getElementById(id);
-const hide = (id) => { const e = typeof id==='string'?$(id):id; e && e.classList.add('hidden'); }
-const show = (id) => { const e = typeof id==='string'?$(id):id; e && e.classList.remove('hidden'); }
-const fmt = (n) => (typeof n==='number' ? n.toLocaleString('en-IN',{minimumFractionDigits:2, maximumFractionDigits:2}) : n);
+(function(){
+  // mark that script loaded
+  window.appInitialized = true;
 
-/* ========== IndexedDB (records store) ========== */
-const DB_NAME = 'anj_invoice_v3';
-const STORE = 'invoices_v3';
-function openDB(){
-  return new Promise((res,reject)=>{
-    const rq = indexedDB.open(DB_NAME, 1);
-    rq.onupgradeneeded = (e)=> {
-      const db = e.target.result;
-      if(!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath:'id', autoIncrement:true });
+  /* ---------- UI helpers ---------- */
+  function $(id){ return document.getElementById(id); }
+  function show(el){ if(!el) return; el.classList.remove('hidden'); }
+  function hide(el){ if(!el) return; el.classList.add('hidden'); }
+  function safeText(s){ return s==null ? '' : String(s); }
+  function addMsg(msg, type='info'){
+    const root = ensureDiagnostics();
+    const p = document.createElement('div');
+    p.style.padding = '6px 8px';
+    p.style.borderTop = '1px solid rgba(255,255,255,0.03)';
+    p.style.fontSize = '13px';
+    p.style.color = type==='err' ? '#ffb4b4' : '#cfc3a9';
+    p.textContent = msg;
+    root.appendChild(p);
+  }
+  function ensureDiagnostics(){
+    let d = document.getElementById('anjDiagnostics');
+    if(d) return d;
+    d = document.createElement('div');
+    d.id = 'anjDiagnostics';
+    d.style.position = 'fixed';
+    d.style.right = '12px';
+    d.style.bottom = '12px';
+    d.style.maxWidth = '320px';
+    d.style.background = 'rgba(10,10,10,0.84)';
+    d.style.border = '1px solid rgba(255,255,255,0.04)';
+    d.style.borderRadius = '8px';
+    d.style.zIndex = 99999;
+    d.style.padding = '8px';
+    d.style.boxShadow = '0 8px 30px rgba(0,0,0,0.6)';
+    const title = document.createElement('div');
+    title.textContent = 'ANJ Debug';
+    title.style.fontWeight = '800';
+    title.style.color = '#ffd973';
+    title.style.marginBottom = '6px';
+    d.appendChild(title);
+    document.body.appendChild(d);
+    return d;
+  }
+
+  /* ---------- Library presence checks ---------- */
+  function checkLibs(){
+    const libs = {
+      pdfjsLib: (typeof pdfjsLib !== 'undefined'),
+      Tesseract: (typeof Tesseract !== 'undefined'),
+      html2canvas: (typeof html2canvas !== 'undefined'),
+      jspdf: (typeof jspdf !== 'undefined'),
+      Chart: (typeof Chart !== 'undefined')
     };
-    rq.onsuccess = (e)=> res(e.target.result);
-    rq.onerror = (e)=> reject(e.target.error);
-  });
-}
-async function saveRecord(rec){
-  const db = await openDB();
-  return new Promise((res,reject)=>{
-    const tx = db.transaction(STORE,'readwrite');
-    const s = tx.objectStore(STORE);
-    const r = s.add(rec);
-    r.onsuccess = (ev)=> res(ev.target.result);
-    r.onerror = (ev)=> reject(ev.target.error);
-  });
-}
-async function getAllRecords(){
-  const db = await openDB();
-  return new Promise((res,reject)=>{
-    const tx = db.transaction(STORE,'readonly');
-    const s = tx.objectStore(STORE);
-    const req = s.getAll();
-    req.onsuccess = (e)=> res(e.target.result);
-    req.onerror = (e)=> reject(e.target.error);
-  });
-}
-async function deleteRecord(id){
-  const db = await openDB();
-  return new Promise((res,reject)=>{
-    const tx = db.transaction(STORE,'readwrite');
-    const s = tx.objectStore(STORE);
-    const req = s.delete(id);
-    req.onsuccess = ()=> res(true);
-    req.onerror = (e)=> reject(e.target.error);
-  });
-}
-async function clearAll(){
-  const db = await openDB();
-  return new Promise((res,reject)=>{
-    const tx = db.transaction(STORE,'readwrite');
-    const s = tx.objectStore(STORE);
-    const req = s.clear();
-    req.onsuccess = ()=> res(true);
-    req.onerror = (e)=> reject(e.target.error);
-  });
-}
-
-/* ========== Text extraction (PDF / IMG / TXT) ========== */
-async function extractPDF(file){
-  try{
-    const arr = await file.arrayBuffer();
-    const loading = pdfjsLib.getDocument(new Uint8Array(arr));
-    const pdf = await loading.promise;
-    let out = '';
-    for(let i=1;i<=pdf.numPages;i++){
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      const pageText = content.items.map(it=>it.str).join(' ');
-      out += '\n' + pageText + '\n';
-    }
-    return out;
-  }catch(e){
-    console.error('PDF extraction error', e);
-    throw e;
-  }
-}
-
-async function extractImage(file){
-  try{
-    const worker = Tesseract.createWorker({ logger: m => { /* optional progress */ }});
-    await worker.load();
-    await worker.loadLanguage('eng');
-    await worker.initialize('eng');
-    const { data:{ text } } = await worker.recognize(file);
-    await worker.terminate();
-    return text;
-  }catch(e){
-    console.error('OCR error', e);
-    throw e;
-  }
-}
-
-/* ========== High-quality extractor functions ========== */
-
-// Normalize lines: split and trim, remove many duplicate spaces
-function normalizeLines(raw){
-  const lines = raw.split(/\r?\n/).map(l=> l.replace(/\u00A0/g,' ').trim()).filter(Boolean);
-  return lines.map(l => l.replace(/\s{2,}/g,' ').trim());
-}
-
-// Detect merchant: choose first UPPERCASE-ish line longer than 3 chars, or a clear brand match
-function detectMerchant(lines){
-  for(const l of lines.slice(0,6)){
-    if(l.length>3 && /[A-Z]/.test(l) && !/GST|INVOICE|TAX|DATE|PHONE|MOB|ADDRESS/i.test(l)){
-      // if many upper-case letters, likely merchant name
-      const ratioUpper = (l.replace(/[^A-Z]/g,'').length / Math.max(1,l.length));
-      if(ratioUpper > 0.2 || /^[A-Z0-9 ]+$/.test(l)) return l;
-    }
-  }
-  // fallback brand keywords
-  const brandMatch = rawSearch(lines.join(' '), ['megamart','mart','supermarket','hyperstore','store','shop','bazaar','pharmacy','d-mart','dmart','reliance','bigbazaar']);
-  return brandMatch || lines[0] || 'Unknown Merchant';
-}
-
-// helper search for keywords -> return matched word
-function rawSearch(txt, arr){
-  const t = txt.toLowerCase();
-  for(const k of arr) if(t.includes(k)) return k.toUpperCase();
-  return null;
-}
-
-// Date detection: multiple formats
-function detectDate(text){
-  const candidates = [];
-  // dd-MMM-yyyy or dd-MMM-yy
-  const r1 = text.match(/\b([0-3]?\d[-\/\s](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[-\/\s]\d{2,4})\b/i);
-  if(r1) candidates.push(r1[1]);
-  // dd/mm/yyyy
-  const r2 = text.match(/\b([0-3]?\d[\/\-][0-1]?\d[\/\-]\d{2,4})\b/);
-  if(r2) candidates.push(r2[1]);
-  // yyyy-mm-dd
-  const r3 = text.match(/\b(\d{4}[-\/]\d{1,2}[-\/]\d{1,2})\b/);
-  if(r3) candidates.push(r3[1]);
-  // fallback: month name + year
-  const r4 = text.match(/\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})\b/i);
-  if(r4) candidates.push(r4[1]);
-  return candidates[0] || '';
-}
-
-// Totals detection: subtotal, tax lines, grand total (₹)
-function detectTotals(lines){
-  const totals = { subtotal: 0, tax: 0, gst:{}, grand: 0, raw: [] };
-  const rupeeRegex = /₹\s?([\d,]+(?:\.\d{1,2})?)/g;
-  for(const l of lines){
-    if(/\bsubtotal\b/i.test(l)){
-      const m = l.match(/₹\s?([\d,]+(?:\.\d{1,2})?)/);
-      if(m) totals.subtotal = toNumber(m[1]);
-    }
-    if(/grand\s*total/i.test(l) || /\btotal\s*amount\b/i.test(l) || /^total[:\s]/i.test(l)){
-      const m = l.match(/₹\s?([\d,]+(?:\.\d{1,2})?)/);
-      if(m) totals.grand = toNumber(m[1]);
-    }
-    if(/\b(GST|CGST|SGST|VAT|TAX)\b/i.test(l)){
-      // capture percent and amount
-      const m = l.match(/(CGST|SGST|GST|VAT)[^\d%]*(\d{1,2})%?.*₹\s?([\d,]+(?:\.\d{1,2})?)/i);
-      if(m){
-        const key = (m[1] || 'GST').toUpperCase();
-        totals.gst[key] = (totals.gst[key]||0) + toNumber(m[3]);
-        totals.tax += toNumber(m[3]);
-      } else {
-        // fallback single rupee detection
-        const mm = [...l.matchAll(rupeeRegex)];
-        if(mm.length) { totals.tax += toNumber(mm[mm.length-1][1]); }
-      }
-    }
-    // collect rupee matches
-    const mm = [...l.matchAll(rupeeRegex)].map(x=>x[1]);
-    if(mm.length) totals.raw.push(...mm.map(toNumber));
-  }
-  // fallback compute grand from last rupee if missing
-  if(!totals.grand && totals.raw.length) totals.grand = totals.raw[totals.raw.length-1];
-  if(!totals.subtotal && totals.raw.length>1) totals.subtotal = totals.raw[totals.raw.length-2];
-  return totals;
-}
-
-// Convert "1,234.00" -> number
-function toNumber(s){ if(s==null) return 0; return Number(String(s).replace(/,/g,'')) || 0; }
-
-/* ========== Item/table parser ========== */
-// Primary regex for a line like:
-// Product Name  <lots spaces>  QTY  <spaces>  Price  <spaces>  Total
-const ITEM_LINE_RE = /^(.+?)\s+(\d+)\s+([\d,]+\.\d{1,2})\s+([\d,]+\.\d{1,2})$/;
-
-/* Support alternate patterns, e.g.
- "Wireless Keyboard    2    1,299.00    2,598.00"
- "USB-C Cable 3 299 897"
-*/
-function extractItems(lines){
-  const items = [];
-  // First pass: exact item line regex
-  for(const l of lines){
-    const m = l.match(ITEM_LINE_RE);
-    if(m){
-      items.push({
-        description: m[1].trim(),
-        qty: Number(m[2]),
-        unit: toNumber(m[3]),
-        total: toNumber(m[4])
-      });
-    }
-  }
-  if(items.length) return items;
-
-  // Second pass: lines containing rupee amounts; attempt heuristics
-  for(const l of lines){
-    // skip header/footer lines
-    if(/\b(total|subtotal|grand|gst|tax|balance|change|payment|invoice|receipt|thank you|visit again)\b/i.test(l)) continue;
-
-    // find last rupee amount in line
-    const rupees = [...l.matchAll(/₹\s?([\d,]+(?:\.\d{1,2})?)/g)].map(m=>m[1]);
-    if(rupees.length){
-      const last = rupees[rupees.length-1];
-      let total = toNumber(last);
-      // qty heuristic: small integer earlier in the line
-      const qtyMatch = l.match(/\b(\d{1,2})\b(?!.*\d{2,})/); // small integer
-      let qty = qtyMatch ? Number(qtyMatch[1]) : 1;
-      // description: take substring before first currency or before qty
-      let desc = l.split(/₹/)[0].replace(/\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\b/g,'').trim();
-      // rate fallback: if qty > 1, compute
-      let unit = qty>0 ? +(total/qty).toFixed(2) : total;
-      if(desc.length < 1) desc = 'Item';
-      items.push({ description: desc, qty, unit, total });
-    }
+    return libs;
   }
 
-  // Final fallback: detect pattern "Name - Price" etc
-  if(!items.length){
-    for(const l of lines){
-      const m = l.match(/(.+?)\s+₹\s?([\d,]+(?:\.\d{1,2})?)/);
-      if(m){
-        items.push({ description: m[1].trim(), qty:1, unit: toNumber(m[2]), total: toNumber(m[2]) });
-      }
+  /* ---------- Safe init: wait for DOM + libs ---------- */
+  async function safeInit(){
+    // wait DOM
+    if(document.readyState === 'loading'){
+      await new Promise(r => document.addEventListener('DOMContentLoaded', r));
     }
+
+    // add minimal UI diagnostics area
+    ensureDiagnostics();
+    addMsg('Initializing app...', 'info');
+
+    // check libs now
+    const libs = checkLibs();
+    for(const k in libs){
+      if(!libs[k]) addMsg(`${k} not loaded`, 'err');
+      else addMsg(`${k} loaded`, 'info');
+    }
+
+    // attach UI elements safely (verify IDs)
+    const requiredIds = ['fileInput','parseBtn','ocrBtn','historyList','exportAllBtn','clearAllBtn','generateBtn','saveBtn','downloadPDFBtn','printBtn','regenerateBtn','parsedCard','invoiceCard','invoiceArea','metaBlock','itemsBlock','categoryChart','monthlyChart'];
+    requiredIds.forEach(id=>{
+      const e = $(id);
+      addMsg(`Element "${id}": ${e ? 'OK' : 'MISSING'}`, e ? 'info' : 'err');
+    });
+
+    // If critical libs missing, still attach limited functionality and return
+    if(!libs.pdfjsLib && !libs.Tesseract){
+      addMsg('Both pdf.js and Tesseract are missing — parsing disabled.', 'err');
+      attachLimitedHandlers();
+      return;
+    }
+
+    // If HTML2Canvas or jspdf missing disable PDF export button
+    if(!libs.html2canvas || !libs.jspdf){
+      addMsg('html2canvas/jsPDF missing — download PDF disabled but parsing will work.', 'err');
+      const dl = $('downloadPDFBtn'); if(dl) dl.disabled = true;
+    }
+
+    // If Chart.js missing, disable analytics area
+    if(!libs.Chart){
+      addMsg('Chart.js missing — analytics disabled.', 'err');
+    }
+
+    // now attach full handlers
+    attachHandlers();
+    addMsg('Initialization complete ✅', 'info');
   }
-  return items;
-}
 
-/* ========== Master parse function ========== */
-async function parseRawText(rawText){
-  const lines = normalizeLines(rawText);
-  const joined = lines.join('\n');
-
-  const merchant = detectMerchant(lines);
-  const date = detectDate(joined);
-  const totals = detectTotals(lines);
-  const items = extractItems(lines);
-
-  // Payment mode & ref detection
-  const pm = joined.match(/\b(Payment Mode|Mode of Payment)[:\s]*([A-Za-z0-9]+)/i);
-  const paymentMode = pm ? pm[2] : (joined.match(/\b(UPI|CARD|CASH|NETBANKING|PAYTM)\b/i)||[])[0] || '';
-  const ref = (joined.match(/Ref(?:erence)?(?: ID| No|:)?\s*[:\-]?\s*([A-Za-z0-9@-]+)/i)||[])[1] || (joined.match(/\b[A-Z0-9]{6,}@[a-zA-Z]+/i)||[])[0] || '';
-
-  // Invoice number
-  const inv = (joined.match(/\b(?:Invoice|Inv|Bill|Receipt)[\s:]*([A-Za-z0-9\/\-]+)/i)||[])[1] || '';
-
-  // Auto-category by keywords
-  const category = autoCategorize(joined);
-
-  return { merchant, date, items, totals, paymentMode, ref, invoiceNo: inv, category, raw: rawText };
-}
-
-/* ========== Categorizer (keyword mapping) ========== */
-function autoCategorize(text){
-  const t = text.toLowerCase();
-  if(/grocery|mart|bread|vegetable|vegetables|fruits|dmart|bigbazaar|megamart|supermarket/.test(t)) return 'Groceries';
-  if(/hotel|restaurant|dine|cafe|coffee|pizza|burger/.test(t)) return 'Dining';
-  if(/pharm|medical|chemist|tablet|medicine/.test(t)) return 'Health';
-  if(/fuel|petrol|diesel|petrol pump|fuel pump/.test(t)) return 'Fuel';
-  if(/electronics|mobile|charger|headphone|speaker/.test(t)) return 'Electronics';
-  return 'General';
-}
-
-/* ========== UI handlers ========== */
-let currentRecord = null;
-
-$('parseBtn').addEventListener('click', async ()=>{
-  const f = $('fileInput').files[0];
-  if(!f) return alert('Choose a file first.');
-  // extract text
-  try{
-    let text = '';
-    if(/pdf/i.test(f.type) || /\.pdf$/i.test(f.name)) text = await extractPDF(f);
-    else if(f.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(f.name)) text = await extractImage(f);
-    else text = await f.text();
-
-    const parsed = await parseRawText(text);
-    parsed.originalFileName = f.name;
-    // attach blob buffer (store ArrayBuffer later)
-    parsed.fileBlob = f;
-    currentRecord = parsed;
-    renderParsed(parsed);
-  }catch(e){
-    console.error(e);
-    alert('Error parsing file: '+ (e.message||e));
+  /* ---------- Fallback UI when no libs ---------- */
+  function attachLimitedHandlers(){
+    const parseBtn = $('parseBtn');
+    if(parseBtn){
+      parseBtn.addEventListener('click', ()=> alert('Parsing disabled: pdf.js or Tesseract not available.'));
+    }
+    const ocrBtn = $('ocrBtn');
+    if(ocrBtn){
+      ocrBtn.addEventListener('click', ()=> alert('OCR disabled: Tesseract not available.'));
+    }
+    const exportBtn = $('exportAllBtn');
+    if(exportBtn) exportBtn.addEventListener('click', ()=> alert('Export currently disabled.'));
+    // still try to load history if DB exists
+    loadHistorySafe().catch(err=>addMsg('History load failed: '+err,'err'));
   }
-});
 
-$('ocrBtn').addEventListener('click', async ()=>{
-  const f = $('fileInput').files[0];
-  if(!f) return alert('Choose a file first.');
-  if(!f.type.startsWith('image/')) return alert('OCR works only for images; for PDF use Parse Bill.');
-  try{
-    const text = await extractImage(f);
-    const parsed = await parseRawText(text);
-    parsed.originalFileName = f.name;
-    parsed.fileBlob = f;
-    currentRecord = parsed;
-    renderParsed(parsed);
-  }catch(e){ console.error(e); alert('OCR error'); }
-});
+  /* ---------- Attach full handlers ---------- */
+  function attachHandlers(){
+    // handlers map
+    const parseBtn = $('parseBtn');
+    const ocrBtn = $('ocrBtn');
+    const fileInput = $('fileInput');
+    const generateBtn = $('generateBtn');
+    const saveBtn = $('saveBtn');
+    const downloadPDFBtn = $('downloadPDFBtn');
+    const printBtn = $('printBtn');
+    const exportAllBtn = $('exportAllBtn');
+    const clearAllBtn = $('clearAllBtn');
+    const parsedCard = $('parsedCard');
+    const invoiceCard = $('invoiceCard');
 
-function renderParsed(p){
-  // meta
-  const metaHtml = `
-    <div><strong>Merchant:</strong> ${escapeHtml(p.merchant)}</div>
-    <div><strong>Invoice:</strong> ${escapeHtml(p.invoiceNo || '')} &nbsp; <strong>Date:</strong> ${escapeHtml(p.date || '')}</div>
-    <div><strong>Payment:</strong> ${escapeHtml(p.paymentMode || '')} ${p.ref?(' • Ref: '+escapeHtml(p.ref)) : ''}</div>
-    <div><strong>Category:</strong> ${escapeHtml(p.category || '')}</div>
-    <div class="small muted">Detected totals — Subtotal: ₹${fmt(p.totals.subtotal)}, Tax: ₹${fmt(p.totals.tax)}, Grand: ₹${fmt(p.totals.grand)}</div>
-  `;
-  $('metaBlock').innerHTML = metaHtml;
+    // safety: if an element missing, show message and early-return for that button
+    if(parseBtn) parseBtn.addEventListener('click', onParseClicked);
+    if(ocrBtn) ocrBtn.addEventListener('click', onOcrClicked);
+    if(generateBtn) generateBtn.addEventListener('click', onGenerateClicked);
+    if(saveBtn) saveBtn.addEventListener('click', onSaveClicked);
+    if(downloadPDFBtn) downloadPDFBtn.addEventListener('click', onDownloadPDF);
+    if(printBtn) printBtn.addEventListener('click', ()=> window.print());
+    if(exportAllBtn) exportAllBtn.addEventListener('click', onExportAll);
+    if(clearAllBtn) clearAllBtn.addEventListener('click', onClearAll);
 
-  // items table
-  let itemsHtml = '<table class="itemsTable"><thead><tr><th>#</th><th>Description</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead><tbody>';
-  p.items.forEach((it,i)=>{
-    itemsHtml += `<tr><td>${i+1}</td><td>${escapeHtml(it.description)}</td><td>${it.qty}</td><td>₹${fmt(it.unit)}</td><td>₹${fmt(it.total)}</td></tr>`;
-  });
-  itemsHtml += '</tbody></table>';
-  $('itemsBlock').innerHTML = itemsHtml;
+    // load history into UI
+    loadHistorySafe().catch(e=> addMsg('History load error: '+e,'err'));
+  }
 
-  show('parsedCard'); show('generateBtn');
-  hide('invoiceCard');
-}
-
-/* ========== Save to history ========== */
-$('saveBtn').addEventListener('click', async ()=>{
-  if(!currentRecord) return alert('Nothing parsed to save.');
-  const rec = {
-    merchant: currentRecord.merchant,
-    invoiceNo: currentRecord.invoiceNo,
-    date: currentRecord.date,
-    paymentMode: currentRecord.paymentMode,
-    ref: currentRecord.ref,
-    category: currentRecord.category,
-    totals: currentRecord.totals,
-    items: currentRecord.items,
-    parsedAt: Date.now(),
-    fileName: currentRecord.originalFileName || 'uploaded'
-  };
-  // attach file as ArrayBuffer if present
-  if(currentRecord.fileBlob){
+  /* ---------- Core: parse / OCR wrappers ---------- */
+  async function onParseClicked(){
+    const f = $('fileInput') && $('fileInput').files && $('fileInput').files[0];
+    if(!f) return alert('Choose a file first');
     try{
-      const ab = await currentRecord.fileBlob.arrayBuffer();
-      rec.fileBuffer = ab;
-      rec.fileType = currentRecord.fileBlob.type || '';
-    }catch(e){ console.warn('could not store file blob', e); }
+      addMsg('Starting parse for: '+f.name);
+      let txt = '';
+      if(/pdf/i.test(f.type) || /\.pdf$/i.test(f.name)){
+        if(typeof pdfjsLib === 'undefined') throw new Error('pdf.js missing');
+        txt = await extractPDFSafe(f);
+      } else if(f.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(f.name)){
+        if(typeof Tesseract === 'undefined') throw new Error('Tesseract missing');
+        txt = await extractImageSafe(f);
+      } else {
+        txt = await f.text();
+      }
+      const parsed = await parseRawTextSafe(txt);
+      window.__lastParsed = parsed;
+      renderParsed(parsed);
+      addMsg('Parse completed');
+    }catch(err){
+      console.error(err);
+      addMsg('Parse error: '+(err&&err.message?err.message:err),'err');
+      alert('Parse failed: '+(err&&err.message?err.message:err));
+    }
   }
-  const id = await saveRecord(rec);
-  alert('Saved to history (id: '+id+')');
-  await loadHistory();
-});
 
-/* ========== Load / Render history ========== */
-async function loadHistory(){
-  const all = await getAllRecords();
-  const container = $('historyList');
-  container.innerHTML = '';
-  if(!all.length){ container.innerHTML = '<div class="muted">No saved bills yet.</div>'; return; }
-  all.sort((a,b)=> b.parsedAt - a.parsedAt);
-  for(const r of all){
-    const div = document.createElement('div');
-    div.className = 'historyItem';
-    div.innerHTML = `
-      <div class="h-left">
-        <div style="width:48px;height:40px;border-radius:8px;background:linear-gradient(135deg,#2a2a2a,#111);display:flex;align-items:center;justify-content:center;">
-          <strong style="color:${r.generated?'#ffd973':'#c9b68a'}">${(r.merchant||'ANJ').slice(0,2).toUpperCase()}</strong>
-        </div>
-        <div>
-          <div style="font-weight:700">${escapeHtml(r.merchant || 'Unknown')}</div>
-          <div class="h-meta">${escapeHtml(r.fileName || '')} • ${new Date(r.parsedAt).toLocaleString()}</div>
-        </div>
-      </div>
-      <div class="h-actions">
-        <button class="btn small ghost" onclick="viewRecord(${r.id})">View</button>
-        <button class="btn small ghost" onclick="exportRecord(${r.id})">Export</button>
-        <button class="btn small ghost" onclick="deleteRecordConfirm(${r.id})">Delete</button>
-      </div>
+  async function onOcrClicked(){
+    const f = $('fileInput') && $('fileInput').files && $('fileInput').files[0];
+    if(!f) return alert('Choose an image first');
+    if(typeof Tesseract === 'undefined') return alert('Tesseract not loaded');
+    try{
+      addMsg('Starting OCR for: '+f.name);
+      const txt = await extractImageSafe(f);
+      const parsed = await parseRawTextSafe(txt);
+      window.__lastParsed = parsed;
+      renderParsed(parsed);
+    }catch(err){
+      addMsg('OCR error: '+(err.message||err),'err');
+    }
+  }
+
+  /* ---------- Actual extractors with try/catch and timeouts ---------- */
+  async function extractPDFSafe(file){
+    if(typeof pdfjsLib === 'undefined') throw new Error('pdf.js not loaded');
+    try{
+      const arr = await file.arrayBuffer();
+      const loadingTask = pdfjsLib.getDocument(new Uint8Array(arr));
+      const pdf = await loadingTask.promise;
+      let out = '';
+      for(let i=1;i<=pdf.numPages;i++){
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const pageText = content.items.map(it=>it.str).join(' ');
+        out += '\n'+pageText+'\n';
+      }
+      return out;
+    }catch(e){
+      throw new Error('PDF extraction failed: '+e.message);
+    }
+  }
+
+  async function extractImageSafe(file){
+    if(typeof Tesseract === 'undefined') throw new Error('Tesseract not loaded');
+    try{
+      const worker = Tesseract.createWorker({ logger: m => {
+        // optional status updates
+      }});
+      await worker.load();
+      await worker.loadLanguage('eng');
+      await worker.initialize('eng');
+      const { data: { text } } = await worker.recognize(file);
+      await worker.terminate();
+      return text;
+    }catch(e){
+      throw new Error('OCR failed: '+e.message);
+    }
+  }
+
+  /* ---------- Parsing logic (same as earlier version but defensive) ---------- */
+  function normalizeLines(raw){
+    if(!raw) return [];
+    return raw.split(/\r?\n/).map(s=>s.replace(/\u00A0/g,' ').trim()).filter(Boolean).map(s=>s.replace(/\s{2,}/g,' ').trim());
+  }
+  function toNumber(s){ return Number(String(s||'').replace(/,/g,'')) || 0; }
+
+  const ITEM_LINE_RE = /^(.+?)\s+(\d+)\s+([\d,]+\.\d{1,2})\s+([\d,]+\.\d{1,2})$/;
+
+  function extractItems(lines){
+    const items = [];
+    for(const l of lines){
+      const m = l.match(ITEM_LINE_RE);
+      if(m){
+        items.push({ description: m[1].trim(), qty: Number(m[2]), unit: toNumber(m[3]), total: toNumber(m[4]) });
+      }
+    }
+    if(items.length) return items;
+    // fallback heuristics: pick lines with rupee and short numbers
+    for(const l of lines){
+      if(/\b(total|subtotal|gst|sgst|cgst|tax|grand)\b/i.test(l)) continue;
+      const ru = [...l.matchAll(/₹\s?([\d,]+(?:\.\d{1,2})?)/g)].map(x=>x[1]);
+      if(ru.length){
+        const total = toNumber(ru[ru.length-1]);
+        const qtyMatch = l.match(/\b(\d{1,2})\b(?!.*\d{2,})/);
+        const qty = qtyMatch ? Number(qtyMatch[1]) : 1;
+        let desc = l.split(/₹/)[0].replace(/\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\b/g,'').trim();
+        if(!desc) desc = 'Item';
+        const unit = qty>0 ? +(total/qty).toFixed(2) : total;
+        items.push({ description: desc, qty, unit, total });
+      }
+    }
+    return items;
+  }
+
+  function detectDate(text){
+    if(!text) return '';
+    const r1 = text.match(/\b([0-3]?\d[-\/\s](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[-\/\s]\d{2,4})\b/i);
+    if(r1) return r1[1];
+    const r2 = text.match(/\b([0-3]?\d[\/\-][0-1]?\d[\/\-]\d{2,4})\b/);
+    if(r2) return r2[1];
+    const r3 = text.match(/\b(\d{4}[-\/]\d{1,2}[-\/]\d{1,2})\b/);
+    if(r3) return r3[1];
+    const r4 = text.match(/\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})\b/i);
+    if(r4) return r4[1];
+    return '';
+  }
+
+  function detectTotals(lines){
+    const totals = { subtotal:0, tax:0, gst:{}, grand:0, raw:[] };
+    for(const l of lines){
+      if(/\bsubtotal\b/i.test(l)){
+        const m = l.match(/₹\s?([\d,]+(?:\.\d{1,2})?)/);
+        if(m) totals.subtotal = toNumber(m[1]);
+      }
+      if(/grand\s*total/i.test(l) || /\btotal\s*amount\b/i.test(l) || /^total[:\s]/i.test(l)){
+        const m = l.match(/₹\s?([\d,]+(?:\.\d{1,2})?)/);
+        if(m) totals.grand = toNumber(m[1]);
+      }
+      if(/\b(GST|CGST|SGST|VAT|TAX)\b/i.test(l)){
+        const m = l.match(/(CGST|SGST|GST|VAT)[^\d%]*(\d{1,2})%?.*₹\s?([\d,]+(?:\.\d{1,2})?)/i);
+        if(m){ const key = (m[1]||'GST').toUpperCase(); totals.gst[key] = (totals.gst[key]||0)+toNumber(m[3]); totals.tax += toNumber(m[3]); }
+        else { const mm = [...l.matchAll(/₹\s?([\d,]+(?:\.\d{1,2})?)/g)]; if(mm.length) totals.tax += toNumber(mm[mm.length-1][1]); }
+      }
+      const mm = [...l.matchAll(/₹\s?([\d,]+(?:\.\d{1,2})?)/g)].map(x=>x[1]);
+      if(mm.length) totals.raw.push(...mm.map(toNumber));
+    }
+    if(!totals.grand && totals.raw.length) totals.grand = totals.raw[totals.raw.length-1];
+    if(!totals.subtotal && totals.raw.length>1) totals.subtotal = totals.raw[totals.raw.length-2];
+    return totals;
+  }
+
+  function detectMerchant(lines){
+    for(const l of lines.slice(0,6)){
+      if(l.length>3 && /[A-Z]/.test(l) && !/GST|INVOICE|TAX|DATE|PHONE|MOB|ADDRESS/i.test(l)){
+        const ratioUpper = (l.replace(/[^A-Z]/g,'').length / Math.max(1,l.length));
+        if(ratioUpper > 0.18 || /^[A-Z0-9 ]+$/.test(l)) return l;
+      }
+    }
+    const joined = lines.join(' ');
+    const brand = (joined.match(/\b(megamart|mart|dmart|big ?bazaar|store|supermarket|hyperstore|pharmacy|chemist)\b/i)||[])[0];
+    return brand ? brand.toUpperCase() : (lines[0]||'Unknown Merchant');
+  }
+
+  async function parseRawTextSafe(raw){
+    const lines = normalizeLines(raw);
+    const joined = lines.join('\n');
+    const merchant = detectMerchant(lines);
+    const date = detectDate(joined);
+    const totals = detectTotals(lines);
+    const items = extractItems(lines);
+    const paymentMode = (joined.match(/\b(Payment Mode|Mode of Payment)[:\s]*([A-Za-z0-9]+)/i)||[])[2] || ((joined.match(/\b(UPI|CARD|CASH|NETBANKING|PAYTM)\b/i)||[])[0] || '');
+    const ref = (joined.match(/Ref(?:erence)?(?: ID| No|:)?\s*[:\-]?\s*([A-Za-z0-9@-]+)/i)||[])[1] || (joined.match(/\b[A-Z0-9]{6,}@[a-zA-Z]+/i)||[])[0] || '';
+    const invoiceNo = (joined.match(/\b(?:Invoice|Inv|Bill|Receipt)[\s:]*([A-Za-z0-9\/\-]+)/i)||[])[1] || '';
+    const category = (function(){ const t = joined.toLowerCase(); if(/grocery|mart|bread|vegetable|fruits|supermarket/.test(t)) return 'Groceries'; if(/hotel|restaurant|dine|cafe|coffee/.test(t)) return 'Dining'; if(/pharm|medical|chemist/.test(t)) return 'Health'; if(/fuel|petrol|diesel/.test(t)) return 'Fuel'; if(/electronics|mobile|charger|headphone/.test(t)) return 'Electronics'; return 'General'; })();
+    return { merchant, date, totals, items, paymentMode, ref, invoiceNo, category, rawText: raw };
+  }
+
+  /* ---------- Render functions ---------- */
+  function renderParsed(parsed){
+    // show parsedCard if exists
+    const parsedCard = $('parsedCard'); if(parsedCard) show(parsedCard);
+    const meta = $('metaBlock'); if(meta) meta.innerHTML = `
+      <div><strong>Merchant:</strong> ${safeText(parsed.merchant)}</div>
+      <div><strong>Invoice:</strong> ${safeText(parsed.invoiceNo)} &nbsp; <strong>Date:</strong> ${safeText(parsed.date)}</div>
+      <div><strong>Payment:</strong> ${safeText(parsed.paymentMode)} ${parsed.ref?('• Ref: '+safeText(parsed.ref)):''}</div>
+      <div><strong>Category:</strong> ${safeText(parsed.category)}</div>
+      <div style="margin-top:6px;color:#bfb3a2">Detected totals — Subtotal: ₹${fmt(parsed.totals.subtotal||0)}, Tax: ₹${fmt(parsed.totals.tax||0)}, Grand: ₹${fmt(parsed.totals.grand||0)}</div>
     `;
-    container.appendChild(div);
+    const itemsBlock = $('itemsBlock');
+    if(itemsBlock){
+      if(!parsed.items || !parsed.items.length) { itemsBlock.innerHTML = '<div style="color:#bfb3a2">No item lines detected.</div>'; return; }
+      let html = '<table class="itemsTable"><thead><tr><th>#</th><th>Description</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead><tbody>';
+      parsed.items.forEach((it,i)=> html += `<tr><td>${i+1}</td><td>${safeText(it.description)}</td><td>${it.qty}</td><td>₹${fmt(it.unit)}</td><td>₹${fmt(it.total)}</td></tr>`);
+      html += '</tbody></table>';
+      itemsBlock.innerHTML = html;
+    }
   }
-  buildAnalytics(all);
-}
 
-/* view record */
-async function viewRecord(id){
-  const all = await getAllRecords();
-  const rec = all.find(x=>x.id===id);
-  if(!rec) return alert('Not found');
-  // set as current
-  currentRecord = rec;
-  renderParsed(rec);
-  // show invoice if previously generated html exists
-  if(rec.generatedHtml){
-    $('invoiceArea').innerHTML = rec.generatedHtml;
-    show('invoiceCard');
-  } else hide('invoiceCard');
-  window.scrollTo({ top:0, behavior:'smooth' });
-}
+  /* ---------- History (simple safe wrappers) ---------- */
+  // reuse earlier IndexedDB helpers but minimal and safe
+  const DBNAME = 'anj_invoice_v3_safe';
+  const STORE = 'invoices';
+  function openDB(){
+    return new Promise((resolve,reject)=>{
+      const r = indexedDB.open(DBNAME,1);
+      r.onupgradeneeded = e => {
+        const db = e.target.result;
+        if(!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE,{ keyPath:'id', autoIncrement:true });
+      };
+      r.onsuccess = e => resolve(e.target.result);
+      r.onerror = e => reject(e.target.error);
+    });
+  }
+  async function saveRec(rec){
+    const db = await openDB();
+    return new Promise((res,rej)=>{
+      const tx = db.transaction(STORE,'readwrite');
+      const s = tx.objectStore(STORE);
+      const rq = s.add(rec);
+      rq.onsuccess = e => res(e.target.result);
+      rq.onerror = e => rej(e.target.error);
+    });
+  }
+  async function loadHistorySafe(){
+    try{
+      const db = await openDB();
+      return new Promise((res,rej)=>{
+        const tx = db.transaction(STORE,'readonly');
+        const s = tx.objectStore(STORE);
+        const rq = s.getAll();
+        rq.onsuccess = e => {
+          const rows = e.target.result || [];
+          const list = $('historyList');
+          if(!list) return res(rows);
+          list.innerHTML = '';
+          if(!rows.length) { list.innerHTML = '<div class="muted">No saved bills yet.</div>'; return res(rows); }
+          rows.sort((a,b)=> b.savedAt - a.savedAt);
+          for(const r of rows){
+            const div = document.createElement('div');
+            div.className = 'historyItem';
+            div.style.display = 'flex';
+            div.style.justifyContent = 'space-between';
+            div.style.alignItems = 'center';
+            div.style.padding = '8px';
+            div.style.borderRadius = '8px';
+            div.style.marginBottom = '8px';
+            div.innerHTML = `<div>
+              <div style="font-weight:700">${safeText(r.merchant)}</div>
+              <div style="font-size:12px;color:#bfb3a2">${new Date(r.savedAt).toLocaleString()}</div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn small ghost" onclick="(function(id){ return async function(){ alert('view not implemented in debug build: '+id); }} )(${JSON.stringify(r.id)})()">View</button>
+              <button class="btn small ghost" onclick="(function(id){ return async function(){ if(confirm('Delete?')){ const db = await openDB(); const tx = db.transaction(STORE,'readwrite'); tx.objectStore(STORE).delete(id); tx.oncomplete = ()=> location.reload(); }} )(${JSON.stringify(r.id)})()">Delete</button>
+            </div>`;
+            list.appendChild(div);
+          }
+          res(rows);
+        };
+        rq.onerror = e => rej(e.target.error);
+      });
+    }catch(e){
+      console.error('History load error', e);
+      addMsg('History load error: '+e.message,'err');
+      throw e;
+    }
+  }
 
-/* delete confirm */
-async function deleteRecordConfirm(id){
-  if(!confirm('Delete saved record?')) return;
-  await deleteRecord(id);
-  await loadHistory();
-}
+  /* ---------- Save handler ---------- */
+  async function onSaveClicked(){
+    if(!window.__lastParsed) return alert('Nothing parsed yet.');
+    try{
+      const p = window.__lastParsed;
+      const rec = {
+        merchant: p.merchant||'Unknown',
+        invoiceNo: p.invoiceNo||'',
+        date: p.date||'',
+        category: p.category||'General',
+        totals: p.totals||{},
+        items: p.items||[],
+        rawText: p.rawText||'',
+        savedAt: Date.now()
+      };
+      // attach file buffer if present
+      if(p.fileBlob && typeof p.fileBlob.arrayBuffer === 'function'){
+        try{ rec.fileBuffer = await p.fileBlob.arrayBuffer(); rec.fileType = p.fileBlob.type || ''; }catch(e){ console.warn('file buffer not saved', e); }
+      }
+      const id = await saveRec(rec);
+      addMsg('Saved record id: '+id);
+      await loadHistorySafe();
+    }catch(e){ addMsg('Save error: '+(e.message||e), 'err'); }
+  }
 
-/* export one record as JSON */
-async function exportRecord(id){
-  const all = await getAllRecords();
-  const rec = all.find(x=>x.id===id);
-  if(!rec) return alert('Not found');
-  const blob = new Blob([JSON.stringify(rec, null, 2)], { type:'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = `anj-invoice-${id}.json`; a.click();
-  URL.revokeObjectURL(url);
-}
-
-/* export all */
-$('exportAllBtn').addEventListener('click', async ()=>{
-  const all = await getAllRecords();
-  const blob = new Blob([JSON.stringify(all, null, 2)], { type:'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = `anj-invoice-history.json`; a.click();
-  URL.revokeObjectURL(url);
-});
-
-/* clear all */
-$('clearAllBtn').addEventListener('click', async ()=>{
-  if(!confirm('Clear all history?')) return;
-  await clearAll();
-  await loadHistory();
-});
-
-/* ========== Invoice generation (HTML) ========== */
-$('generateBtn').addEventListener('click', ()=>{
-  if(!currentRecord) return alert('Nothing parsed to generate.');
-  const html = buildInvoiceHtml(currentRecord);
-  $('invoiceArea').innerHTML = html;
-  // attach generated html to record (in-memory)
-  currentRecord.generatedHtml = html;
-  show('invoiceCard');
-});
-
-function buildInvoiceHtml(data){
-  const items = data.items || [];
-  const subtotal = items.reduce((s,it)=> s + (it.total || it.qty*(it.unit||it.rate||0)), 0);
-  const tax = data.totals?.tax || +(subtotal*0.05).toFixed(2);
-  const grand = data.totals?.grand || +(subtotal + tax).toFixed(2);
-
-  const rows = items.map((it,i)=>`
-    <tr>
-      <td style="width:6%">${i+1}</td>
-      <td>${escapeHtml(it.description)}</td>
-      <td style="width:8%;text-align:center">${it.qty}</td>
-      <td style="width:14%;text-align:right">₹${fmt(it.unit||it.rate||0)}</td>
-      <td style="width:14%;text-align:right">₹${fmt(it.total|| (it.qty*(it.unit||it.rate||0)))}</td>
-    </tr>
-  `).join('');
-
-  return `
-    <div class="invoiceAreaInner" style="padding:16px;">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div>
-          <div style="font-weight:900;color:${'#ffd973'};font-size:20px">${escapeHtml(data.merchant||'ANJ BUSINESS INVOICE')}</div>
-          <div style="font-size:12px;color:${'#c6b88a'}">${escapeHtml(data.fileName||'')}</div>
-        </div>
-        <div style="text-align:right;color:${'#c6b88a'}">
-          <div><strong>Invoice:</strong> ${escapeHtml(data.invoiceNo||'INV-0001')}</div>
-          <div><strong>Date:</strong> ${escapeHtml(data.date|| (new Date()).toLocaleDateString())}</div>
-        </div>
-      </div>
-
-      <div style="margin-top:14px;overflow:auto">
-        <table style="width:100%;border-collapse:collapse">
-          <thead>
-            <tr style="text-align:left;color:${'#c8b88f'}">
-              <th>#</th><th>Description</th><th>Qty</th><th style="text-align:right">Unit</th><th style="text-align:right">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows}
-          </tbody>
-        </table>
-      </div>
-
-      <div style="display:flex;justify-content:flex-end;margin-top:12px">
-        <div style="width:320px;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(0,0,0,0.04));padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.02)">
-          <div style="display:flex;justify-content:space-between;color:${'#c8b88f'}"><div>Subtotal</div><div>₹${fmt(subtotal)}</div></div>
-          <div style="display:flex;justify-content:space-between;color:${'#c8b88f'}"><div>Tax</div><div>₹${fmt(tax)}</div></div>
-          <div style="display:flex;justify-content:space-between;margin-top:8px;font-weight:900;color:${'#ffd973'}"><div>Grand Total</div><div>₹${fmt(grand)}</div></div>
-        </div>
-      </div>
-
-      <div style="margin-top:14px;color:${'#bdb3a2'};font-size:12px">Thank you for your business. Generated by ANJ Invoice V3.</div>
-    </div>
-  `;
-}
-
-/* ========== 
+  /* ---------- Export All / Clear ---------- */
+  async function onExportAll(){
+    try{
+      const db = await openDB();
+      const tx = db.transaction(STORE,'readonly');
+      const list = await new Promise((res,rej)=>{ const rq = tx.objectStore(STORE).getAll(); rq.onsuccess = e => res(e.target.result); rq.onerror = e => rej(e.target.error); });
+      const blob = new Blob([JSON.stringify(list, null, 2)], { type:'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'anj-history.json'; a.click(); URL.revokeObjectURL(url);
+      addMsg('Exported '+list.length+' records');
+    }catch(e){ addMsg('Export failed: '+(e.message||e),'err'); }
+  }
+  async function onClearAll(){
+    if(!confirm('Clear all saved history?')) return;
+    t
